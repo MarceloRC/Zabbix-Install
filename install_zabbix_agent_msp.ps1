@@ -140,6 +140,7 @@ if ($CreateTask -eq "Y" -or $CreateTask -eq "y") {
 
     $Trigger1 = New-ScheduledTaskTrigger -Daily -At 13:00
     $Trigger2 = New-ScheduledTaskTrigger -Daily -At 03:00
+    $Trigger3 = New-ScheduledTaskTrigger -AtLogOn
 
     $Principal = New-ScheduledTaskPrincipal `
         -UserId "SYSTEM" `
