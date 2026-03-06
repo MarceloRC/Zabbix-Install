@@ -62,8 +62,17 @@ Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 # Instalar Agent silencioso
 Write-Host "Instalando Agent..."
 
-Start-Process "msiexec.exe" -Wait -ArgumentList "/i `"$AgentInstaller`" /qn /norestart"
+Unblock-File $AgentInstaller
 
+Start-Process "msiexec.exe" -Wait -ArgumentList @(
+    "/i",
+    "`"$AgentInstaller`"",
+    "/qn",
+    "/norestart",
+    "SERVER=$Gateway",
+    "SERVERACTIVE=$Gateway",
+    "HOSTNAME=$fqdn"
+)
 Start-Sleep 5
 
 # Backup config original
