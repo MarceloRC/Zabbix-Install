@@ -22,11 +22,24 @@ if (!(Test-Path $ScriptsPath)) {
 }
 
 # Detectar Gateway
-$Gateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
+$DetectedGateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
 Sort-Object RouteMetric |
 Select-Object -First 1).NextHop
 
-Write-Host "Gateway detectado: $Gateway"
+Write-Host ""
+Write-Host "Gateway detectado: $DetectedGateway"
+
+# Perguntar se quer usar o detectado
+$UseDetected = Read-Host "Usar este gateway como Zabbix Server? (Y/N)"
+
+if ($UseDetected -eq "N" -or $UseDetected -eq "n") {
+    $Gateway = Read-Host "Digite o IP do Zabbix Server"
+}
+else {
+    $Gateway = $DetectedGateway
+}
+
+Write-Host "Zabbix Server configurado como: $Gateway"
 
 # Hostname FQDN
 $hostname = $env:COMPUTERNAME
