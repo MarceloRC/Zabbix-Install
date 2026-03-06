@@ -121,3 +121,41 @@ Restart-Service "Zabbix Agent 2" -Force
 
 Write-Host ""
 Write-Host "ZABBIX AGENT INSTALADO E CONFIGURADO"
+Write-Host ""
+Write-Host "Executar politica de Update"
+powershell C:\Scripts\windows_update_check.ps1
+# ===============================
+# CRIAR TASK WINDOWS UPDATE
+# ===============================
+
+$CreateTask = Read-Host "Deseja criar a tarefa de Windows Update? (Y/N)"
+
+if ($CreateTask -eq "Y" -or $CreateTask -eq "y") {
+
+    Write-Host "Criando Task Scheduler..."
+
+    $Action = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\windows_update_check.ps1"
+
+    $Trigger1 = New-ScheduledTaskTrigger -Daily -At 13:00
+    $Trigger2 = New-ScheduledTaskTrigger -Daily -At 03:00
+
+    $Principal = New-ScheduledTaskPrincipal `
+        -UserId "SYSTEM" `
+        -LogonType ServiceAccount `
+        -RunLevel Highest
+
+    Register-ScheduledTask `
+        -TaskName "Zabbix-Windows-Update-Check" `
+        -Action $Action `
+        -Trigger @($Trigger1, $Trigger2) `
+        -Principal $Principal `
+        -Description "Verificação de atualizações para Zabbix" `
+        -Force
+
+    Write-Host "Task criada com sucesso."
+}
+else {
+    Write-Host "Task não criada."
+}
