@@ -12,7 +12,7 @@ $GitADScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/
 
 # URL LTS (Zabbix 7 LTS)
 $AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2-7.0.23-windows-amd64-openssl.msi"
-$AgentInstaller = "$env:TEMP\zabbix_agent2.msi"
+$AgentInstaller = "C:\Scripts\zabbix_agent2.msi"
 
 Write-Host "===== ZABBIX MSP INSTALL ====="
 
@@ -62,7 +62,7 @@ Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 # Instalar Agent silencioso
 Write-Host "Instalando Agent..."
 
-Start-Process msiexec.exe -Wait -ArgumentList "/i $AgentInstaller /qn"
+Start-Process "msiexec.exe" -Wait -ArgumentList "/i `"$AgentInstaller`" /qn /norestart"
 
 Start-Sleep 5
 
