@@ -7,8 +7,8 @@ $AgentFolder = "C:\Program Files\Zabbix Agent 2"
 $ConfigPath = "$AgentFolder\zabbix_agent2.conf"
 
 # AJUSTAR SEU GITHUB
-$GitUpdateScript = "https://raw.githubusercontent.com/SEU_REPO/zabbix-msp/main/scripts/windows_update_check.ps1"
-$GitADScript = "https://raw.githubusercontent.com/SEU_REPO/zabbix-msp/main/scripts/ad_replication.ps1"
+$GitUpdateScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/refs/heads/main/windows_update_check.ps1"
+$GitADScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/refs/heads/main/ad_replication.ps1"
 
 # URL LTS (Zabbix 7 LTS)
 $AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.0/zabbix_agent2-7.0.0-windows-amd64-openssl.msi"
