@@ -11,7 +11,7 @@ $GitUpdateScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/r
 $GitADScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/refs/heads/main/ad_replication.ps1"
 
 # URL LTS (Zabbix 7 LTS)
-$AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.0/zabbix_agent2-7.0.0-windows-amd64-openssl.msi"
+$AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2_plugins-7.0.23-windows-amd64.msi"
 $AgentInstaller = "$env:TEMP\zabbix_agent2.msi"
 
 Write-Host "===== ZABBIX MSP INSTALL ====="
