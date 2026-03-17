@@ -150,7 +150,7 @@ if ($CreateTask -eq "Y" -or $CreateTask -eq "y") {
     Register-ScheduledTask `
         -TaskName "Zabbix-Windows-Update-Check" `
         -Action $Action `
-        -Trigger @($Trigger1, $Trigger2) `
+        -Trigger @($Trigger1, $Trigger2, $Trigger3) `
         -Principal $Principal `
         -Description "Verificação de atualizações para Zabbix" `
         -Force
