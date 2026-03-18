@@ -58,7 +58,50 @@ Write-Host "Hostname: $fqdn"
 Write-Host "Baixando Zabbix Agent..."
 
 Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
+Write-Host "Verificando instalação anterior do Zabbix Agent 2..."
 
+# Possíveis caminhos de registro (32 e 64 bits)
+$RegPaths = @(
+    "HKLM:\SOFTWARE\Zabbix SIA\Zabbix Agent 2",
+    "HKLM:\SOFTWARE\WOW6432Node\Zabbix SIA\Zabbix Agent 2"
+)
+
+foreach ($path in $RegPaths) {
+    if (Test-Path $path) {
+        Write-Host "Encontrado registro: $path - Removendo..."
+        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Remover serviço do Zabbix Agent 2
+$service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
+if ($service) {
+    Write-Host "Removendo serviço Zabbix Agent 2..."
+    Stop-Service -Name "Zabbix Agent 2" -Force -ErrorAction SilentlyContinue
+    sc.exe delete "Zabbix Agent 2" | Out-Null
+}
+
+# Remover via Uninstall (Programas instalados)
+Write-Host "Verificando desinstalação do programa..."
+
+$UninstallPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+
+foreach ($path in $UninstallPaths) {
+    Get-ItemProperty $path -ErrorAction SilentlyContinue | Where-Object {
+        $_.DisplayName -like "*Zabbix Agent 2*"
+    } | ForEach-Object {
+        Write-Host "Desinstalando: $($_.DisplayName)"
+        
+        if ($_.UninstallString) {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c $($_.UninstallString) /quiet /norestart" -Wait
+        }
+    }
+}
+
+Write-Host "Limpeza finalizada."
 # Instalar Agent silencioso
 Write-Host "Instalando Agent..."
 
