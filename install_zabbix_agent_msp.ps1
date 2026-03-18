@@ -58,10 +58,10 @@ Write-Host "Hostname: $fqdn"
 Write-Host "Baixando Zabbix Agent..."
 
 Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
-Write-Host "Limpando qualquer versão do Zabbix Agent..."
+Write-Host "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
 
 # =========================
-# 1. Remover serviços
+# 1. Parar e remover serviços
 # =========================
 $services = @(
     "Zabbix Agent",
@@ -80,22 +80,45 @@ foreach ($svc in $services) {
 }
 
 # =========================
-# 2. Remover chaves de serviço (CRÍTICO)
+# 2. Remover chaves de serviços (todas ControlSets)
 # =========================
 $serviceRegPaths = @(
     "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent",
-    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2"
+    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent 2"
 )
 
 foreach ($path in $serviceRegPaths) {
     if (Test-Path $path) {
-        Write-Host "Removendo chave travada: $path"
-        Remove-Item -Path $path -Recurse -Force
+        Write-Host "Removendo chave de serviço: $path"
+        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 # =========================
-# 3. Remover via Uninstall
+# 3. 🔥 Remover EventLog (CAUSA DO ERRO)
+# =========================
+$eventPaths = @(
+    "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent 2"
+)
+
+foreach ($path in $eventPaths) {
+    if (Test-Path $path) {
+        Write-Host "Removendo EventLog: $path"
+        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# =========================
+# 4. Remover via Uninstall
 # =========================
 $UninstallPaths = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -115,7 +138,7 @@ foreach ($path in $UninstallPaths) {
 }
 
 # =========================
-# 4. Remover chaves de software
+# 5. Remover chaves de software
 # =========================
 $RegPaths = @(
     "HKLM:\SOFTWARE\Zabbix SIA\Zabbix Agent",
@@ -127,12 +150,12 @@ $RegPaths = @(
 foreach ($path in $RegPaths) {
     if (Test-Path $path) {
         Write-Host "Removendo registro: $path"
-        Remove-Item -Path $path -Recurse -Force
+        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 # =========================
-# 5. Remover pastas
+# 6. Remover pastas
 # =========================
 $paths = @(
     "C:\Program Files\Zabbix Agent",
@@ -148,7 +171,23 @@ foreach ($p in $paths) {
     }
 }
 
-Write-Host "Limpeza completa finalizada."
+# =========================
+# 7. Validação final
+# =========================
+Write-Host "Validando resíduos..."
+
+$check = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application" -ErrorAction SilentlyContinue | Where-Object {
+    $_.PSChildName -like "*Zabbix*"
+}
+
+if ($check) {
+    Write-Host "⚠️ Ainda existem resíduos no EventLog:"
+    $check | Select-Object PSChildName
+} else {
+    Write-Host "✅ Limpeza completa com sucesso!"
+}
+
+Write-Host "========== LIMPEZA FINALIZADA =========="
 # Instalar Agent silencioso
 Write-Host "Instalando Agent..."
 
