@@ -58,32 +58,45 @@ Write-Host "Hostname: $fqdn"
 Write-Host "Baixando Zabbix Agent..."
 
 Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
-Write-Host "Verificando instalação anterior do Zabbix Agent 2..."
+Write-Host "Limpando qualquer versão do Zabbix Agent..."
 
-# Possíveis caminhos de registro (32 e 64 bits)
-$RegPaths = @(
-    "HKLM:\SOFTWARE\Zabbix SIA\Zabbix Agent 2",
-    "HKLM:\SOFTWARE\WOW6432Node\Zabbix SIA\Zabbix Agent 2"
+# =========================
+# 1. Remover serviços
+# =========================
+$services = @(
+    "Zabbix Agent",
+    "Zabbix Agent 2"
 )
 
-foreach ($path in $RegPaths) {
-    if (Test-Path $path) {
-        Write-Host "Encontrado registro: $path - Removendo..."
-        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($svc in $services) {
+    $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+    if ($service) {
+        Write-Host "Parando serviço: $svc"
+        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+
+        Write-Host "Removendo serviço: $svc"
+        sc.exe delete "$svc" | Out-Null
     }
 }
 
-# Remover serviço do Zabbix Agent 2
-$service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
-if ($service) {
-    Write-Host "Removendo serviço Zabbix Agent 2..."
-    Stop-Service -Name "Zabbix Agent 2" -Force -ErrorAction SilentlyContinue
-    sc.exe delete "Zabbix Agent 2" | Out-Null
+# =========================
+# 2. Remover chaves de serviço (CRÍTICO)
+# =========================
+$serviceRegPaths = @(
+    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2"
+)
+
+foreach ($path in $serviceRegPaths) {
+    if (Test-Path $path) {
+        Write-Host "Removendo chave travada: $path"
+        Remove-Item -Path $path -Recurse -Force
+    }
 }
 
-# Remover via Uninstall (Programas instalados)
-Write-Host "Verificando desinstalação do programa..."
-
+# =========================
+# 3. Remover via Uninstall
+# =========================
 $UninstallPaths = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
@@ -91,17 +104,51 @@ $UninstallPaths = @(
 
 foreach ($path in $UninstallPaths) {
     Get-ItemProperty $path -ErrorAction SilentlyContinue | Where-Object {
-        $_.DisplayName -like "*Zabbix Agent 2*"
+        $_.DisplayName -like "*Zabbix Agent*"
     } | ForEach-Object {
         Write-Host "Desinstalando: $($_.DisplayName)"
-        
+
         if ($_.UninstallString) {
             Start-Process -FilePath "cmd.exe" -ArgumentList "/c $($_.UninstallString) /quiet /norestart" -Wait
         }
     }
 }
 
-Write-Host "Limpeza finalizada."
+# =========================
+# 4. Remover chaves de software
+# =========================
+$RegPaths = @(
+    "HKLM:\SOFTWARE\Zabbix SIA\Zabbix Agent",
+    "HKLM:\SOFTWARE\Zabbix SIA\Zabbix Agent 2",
+    "HKLM:\SOFTWARE\WOW6432Node\Zabbix SIA\Zabbix Agent",
+    "HKLM:\SOFTWARE\WOW6432Node\Zabbix SIA\Zabbix Agent 2"
+)
+
+foreach ($path in $RegPaths) {
+    if (Test-Path $path) {
+        Write-Host "Removendo registro: $path"
+        Remove-Item -Path $path -Recurse -Force
+    }
+}
+
+# =========================
+# 5. Remover pastas
+# =========================
+$paths = @(
+    "C:\Program Files\Zabbix Agent",
+    "C:\Program Files\Zabbix Agent 2",
+    "C:\Program Files (x86)\Zabbix Agent",
+    "C:\Program Files (x86)\Zabbix Agent 2"
+)
+
+foreach ($p in $paths) {
+    if (Test-Path $p) {
+        Write-Host "Removendo pasta: $p"
+        Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Host "Limpeza completa finalizada."
 # Instalar Agent silencioso
 Write-Host "Instalando Agent..."
 
