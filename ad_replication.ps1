@@ -1,16 +1,85 @@
-$rep = repadmin /replsummary 2>&1 | Out-String
+# ============================================================
+# Check-ADIntegrity.ps1
+# Validacao de integridade do Active Directory para Zabbix
+#
+# Codigos de retorno:
+#   0 = Tudo OK
+#   1 = Falha de replicacao AD (repadmin)
+#   2 = Erro operacional / RPC / latencia
+#   3 = DC com problema detectado pelo dcdiag
+#   4 = SYSVOL nao compartilhado
+# ============================================================
 
-# Falha REAL: qualquer linha com " / " que NÃO seja 0 /
-if ($rep -match "^\s+\S+\s+\d+\s*/\s*\d+" -and $rep -notmatch "^\s+\S+\s+0\s*/\s*\d+") {
+# ---- 1. Replicacao AD (repadmin /replsummary) ---------------
+try {
+    $replLines = repadmin /replsummary 2>&1
+    $hasReplError = $false
+
+    foreach ($line in $replLines) {
+        # Captura linhas com formato: <DC>  X / Y  (X = falhas)
+        if ($line -match "^\s+\S+\s+(\d+)\s*/\s*\d+") {
+            if ([int]$matches[1] -gt 0) {
+                $hasReplError = $true
+                break
+            }
+        }
+    }
+
+    if ($hasReplError) {
+        Write-Output 1
+        exit
+    }
+} catch {
     Write-Output 1
     exit
 }
 
-# Erros operacionais (RPC / 58), mas sem falha de replicação
-if ($rep -match "operational errors|RPC| 58 ") {
+# ---- 2. Erros operacionais / RPC / latencia -----------------
+try {
+    $replStr = $replLines | Out-String
+
+    # Verifica falhas consecutivas no showrepl
+    $showrepl = repadmin /showrepl 2>&1 | Out-String
+    $hasOpError = (
+        $replStr  -match "operational error|RPC Server Unavailable|error 58" -or
+        $showrepl -match "consecutivefailures\s*:\s*[1-9]" -or
+        $showrepl -match "Last attempt.*failed"
+    )
+
+    if ($hasOpError) {
+        Write-Output 2
+        exit
+    }
+} catch {
     Write-Output 2
     exit
 }
 
-# Tudo OK
+# ---- 3. Saude do DC (dcdiag) --------------------------------
+try {
+    $dcdiag = dcdiag /test:advertising /test:netlogons /test:dns /test:replications 2>&1 | Out-String
+
+    if ($dcdiag -match "failed|FAIL") {
+        Write-Output 3
+        exit
+    }
+} catch {
+    Write-Output 3
+    exit
+}
+
+# ---- 4. SYSVOL compartilhado --------------------------------
+try {
+    $shares = net share 2>&1 | Out-String
+
+    if ($shares -notmatch "SYSVOL") {
+        Write-Output 4
+        exit
+    }
+} catch {
+    Write-Output 4
+    exit
+}
+
+# ---- Tudo OK ------------------------------------------------
 Write-Output 0
