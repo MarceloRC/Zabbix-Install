@@ -80,6 +80,14 @@ try {
     Write-Output 4
     exit
 }
+# ---- 5. Verificar se Policies tem conteudo no SYSVOL -------
+$domain = (Get-ADDomain).DNSRoot
+$policies = Get-ChildItem "C:\WINDOWS\SYSVOL\sysvol\$domain\Policies" -ErrorAction SilentlyContinue
+
+if ($null -eq $policies -or $policies.Count -eq 0) {
+    Write-Output 5
+    exit
+}
 
 # ---- Tudo OK ------------------------------------------------
 Write-Output 0
