@@ -1,6 +1,9 @@
 # ===============================
 # Zabbix Agent2 MSP Auto Deploy
 # ===============================
+param(
+    [string]$ZabbixServer = ""
+)
 
 $ScriptsPath = "C:\Scripts"
 $AgentFolder = "C:\Program Files\Zabbix Agent 2"
@@ -22,21 +25,26 @@ if (!(Test-Path $ScriptsPath)) {
 }
 
 # =========================
-# DETECTAR GATEWAY
+# DETECTAR GATEWAY / ZABBIX SERVER
 # =========================
-$DetectedGateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
-Sort-Object RouteMetric |
-Select-Object -First 1).NextHop
-
-Write-Host ""
-Write-Host "Gateway detectado: $DetectedGateway"
-
-$UseDetected = Read-Host "Usar este gateway como Zabbix Server? (Y/N)"
-
-if ($UseDetected -eq "N" -or $UseDetected -eq "n") {
-    $Gateway = Read-Host "Digite o IP do Zabbix Server"
+if ($ZabbixServer -ne "") {
+    $Gateway = $ZabbixServer
+    Write-Host "Zabbix Server definido via parametro: $Gateway"
 } else {
-    $Gateway = $DetectedGateway
+    $DetectedGateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
+    Sort-Object RouteMetric |
+    Select-Object -First 1).NextHop
+
+    Write-Host ""
+    Write-Host "Gateway detectado: $DetectedGateway"
+
+    $UseDetected = Read-Host "Usar este gateway como Zabbix Server? (Y/N)"
+
+    if ($UseDetected -eq "N" -or $UseDetected -eq "n") {
+        $Gateway = Read-Host "Digite o IP do Zabbix Server"
+    } else {
+        $Gateway = $DetectedGateway
+    }
 }
 
 Write-Host "Zabbix Server configurado como: $Gateway"
@@ -134,7 +142,7 @@ foreach ($p in $paths) {
 Write-Host "========== LIMPEZA FINALIZADA =========="
 
 # =========================
-# INSTALAÇÃO
+# INSTALACAO
 # =========================
 Write-Host "Instalando Agent..."
 
