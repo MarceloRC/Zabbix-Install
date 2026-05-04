@@ -128,15 +128,36 @@ Write-Host "Instalando Agent..."
 
 Unblock-File $AgentInstaller
 
-Start-Process "msiexec.exe" -Wait -ArgumentList @(
+$msiLog = "C:\Scripts\zabbix_install.log"
+
+$msiResult = Start-Process "msiexec.exe" -Wait -PassThru -ArgumentList @(
     "/i", "`"$AgentInstaller`"",
     "/qn", "/norestart",
+    "/l*v", "`"$msiLog`"",
     "SERVER=$Gateway",
     "SERVERACTIVE=$Gateway",
     "HOSTNAME=$fqdn"
 )
 
-Start-Sleep 5
+Write-Host "msiexec ExitCode: $($msiResult.ExitCode)"
+
+if ($msiResult.ExitCode -ne 0) {
+    Write-Host "ERRO na instalacao. Veja o log em: $msiLog"
+    exit 1
+}
+
+# Aguardar pasta ser criada pelo instalador (até 30s)
+$timeout = 30
+$elapsed = 0
+while (!(Test-Path $AgentFolder) -and $elapsed -lt $timeout) {
+    Start-Sleep 2
+    $elapsed += 2
+}
+
+if (!(Test-Path $AgentFolder)) {
+    Write-Host "ERRO: Pasta do Agent nao foi criada. Verifique o instalador."
+    exit 1
+}
 
 # =========================
 # CONFIGURAÇÃO BASE
