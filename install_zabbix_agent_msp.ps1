@@ -14,12 +14,16 @@ $AgentInstaller = "C:\Scripts\zabbix_agent2.msi"
 
 Write-Host "===== ZABBIX MSP INSTALL ====="
 
-# Criar pasta Scripts
+# =========================
+# CRIAR PASTA SCRIPTS
+# =========================
 if (!(Test-Path $ScriptsPath)) {
     New-Item -ItemType Directory -Path $ScriptsPath | Out-Null
 }
 
-# Detectar Gateway
+# =========================
+# DETECTAR GATEWAY
+# =========================
 $DetectedGateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
 Sort-Object RouteMetric |
 Select-Object -First 1).NextHop
@@ -31,14 +35,15 @@ $UseDetected = Read-Host "Usar este gateway como Zabbix Server? (Y/N)"
 
 if ($UseDetected -eq "N" -or $UseDetected -eq "n") {
     $Gateway = Read-Host "Digite o IP do Zabbix Server"
-}
-else {
+} else {
     $Gateway = $DetectedGateway
 }
 
 Write-Host "Zabbix Server configurado como: $Gateway"
 
-# Hostname
+# =========================
+# HOSTNAME
+# =========================
 $hostname = $env:COMPUTERNAME
 $domain = (Get-CimInstance Win32_ComputerSystem).Domain
 
@@ -50,7 +55,9 @@ if ($domain -and $domain -ne $hostname) {
 
 Write-Host "Hostname: $fqdn"
 
-# Baixar Agent
+# =========================
+# BAIXAR AGENT
+# =========================
 Write-Host "Baixando Zabbix Agent..."
 Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 
@@ -59,7 +66,7 @@ Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 # =========================
 Write-Host "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
 
-$services = @("Zabbix Agent","Zabbix Agent 2")
+$services = @("Zabbix Agent", "Zabbix Agent 2")
 
 foreach ($svc in $services) {
     $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
@@ -70,12 +77,12 @@ foreach ($svc in $services) {
 }
 
 $serviceRegPaths = @(
-"HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent",
-"HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2",
-"HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent",
-"HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent 2",
-"HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent",
-"HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent 2"
+    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet001\Services\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent 2"
 )
 
 foreach ($path in $serviceRegPaths) {
@@ -85,12 +92,12 @@ foreach ($path in $serviceRegPaths) {
 }
 
 $eventPaths = @(
-"HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent",
-"HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent 2",
-"HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent",
-"HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent 2",
-"HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent",
-"HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent 2"
+    "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet001\Services\EventLog\Application\Zabbix Agent 2",
+    "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent",
+    "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent 2"
 )
 
 foreach ($path in $eventPaths) {
@@ -100,10 +107,10 @@ foreach ($path in $eventPaths) {
 }
 
 $paths = @(
-"C:\Program Files\Zabbix Agent",
-"C:\Program Files\Zabbix Agent 2",
-"C:\Program Files (x86)\Zabbix Agent",
-"C:\Program Files (x86)\Zabbix Agent 2"
+    "C:\Program Files\Zabbix Agent",
+    "C:\Program Files\Zabbix Agent 2",
+    "C:\Program Files (x86)\Zabbix Agent",
+    "C:\Program Files (x86)\Zabbix Agent 2"
 )
 
 foreach ($p in $paths) {
@@ -122,17 +129,17 @@ Write-Host "Instalando Agent..."
 Unblock-File $AgentInstaller
 
 Start-Process "msiexec.exe" -Wait -ArgumentList @(
-"/i","`"$AgentInstaller`"",
-"/qn","/norestart",
-"SERVER=$Gateway",
-"SERVERACTIVE=$Gateway",
-"HOSTNAME=$fqdn"
+    "/i", "`"$AgentInstaller`"",
+    "/qn", "/norestart",
+    "SERVER=$Gateway",
+    "SERVERACTIVE=$Gateway",
+    "HOSTNAME=$fqdn"
 )
 
 Start-Sleep 5
 
 # =========================
-# CONFIG
+# CONFIGURAÇÃO BASE
 # =========================
 if (Test-Path $ConfigPath) {
     Copy-Item $ConfigPath "$ConfigPath.bak" -Force
@@ -159,10 +166,21 @@ UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy B
 
 $config | Out-File -Encoding ascii $ConfigPath
 
-Write-Host "Configuração aplicada"
+Write-Host "Configuração base aplicada."
 
 # =========================
-# SERVIÇO (INTELIGENTE)
+# RDS / TERMINAL SERVER
+# =========================
+$IsTS = Read-Host "Este servidor e Terminal Server / RDS? (Y/N)"
+
+if ($IsTS -match "^[Yy]$") {
+    $rdsParam = "UserParameter=rds.grace.days,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Invoke-CimMethod -InputObject (Get-CimInstance -Namespace root/CIMV2/TerminalServices -ClassName Win32_TerminalServiceSetting) -MethodName GetGracePeriodDays).DaysLeft`""
+    Add-Content -Path $ConfigPath -Value $rdsParam -Encoding ASCII
+    Write-Host "Configuracao RDS adicionada."
+}
+
+# =========================
+# SERVIÇO
 # =========================
 $serviceName = "Zabbix Agent 2"
 $exePath = "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe"
@@ -170,20 +188,18 @@ $exePath = "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe"
 $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 
 if ($svc) {
-    Write-Host "Serviço já existe, reiniciando..."
+    Write-Host "Servico ja existe, reiniciando..."
     Restart-Service $serviceName -Force
-}
-else {
-    Write-Host "Serviço não encontrado, criando manualmente..."
+} else {
+    Write-Host "Servico nao encontrado, criando manualmente..."
 
     if (Test-Path $exePath) {
         & "$exePath" --config "$ConfigPath" --install
         Start-Sleep 2
         Start-Service $serviceName
-        Write-Host "Serviço criado e iniciado."
-    }
-    else {
-        Write-Host "❌ Executável não encontrado!"
+        Write-Host "Servico criado e iniciado."
+    } else {
+        Write-Host "Executavel nao encontrado!"
     }
 }
 
@@ -191,12 +207,12 @@ Write-Host ""
 Write-Host "ZABBIX AGENT INSTALADO E CONFIGURADO"
 
 # =========================
-# EXECUTAR CHECK
+# EXECUTAR CHECK DE UPDATES
 # =========================
 powershell C:\Scripts\windows_update_check.ps1
 
 # =========================
-# TASK
+# TASK AGENDADA
 # =========================
 $CreateTask = Read-Host "Deseja criar a tarefa de Windows Update? (Y/N)"
 
