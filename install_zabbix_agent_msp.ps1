@@ -66,6 +66,18 @@ Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 # =========================
 Write-Host "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
 
+# Desinstalar versao anterior via MSI (evita falha no upgrade)
+$zabbixInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -like "*Zabbix Agent*" }
+
+if ($zabbixInstalled) {
+    foreach ($app in $zabbixInstalled) {
+        $productCode = $app.PSChildName
+        Write-Host "Desinstalando versao anterior: $($app.DisplayName) $($app.DisplayVersion)"
+        Start-Process "msiexec.exe" -Wait -ArgumentList "/x `"$productCode`" /qn /norestart" -ErrorAction SilentlyContinue
+    }
+}
+
 $services = @("Zabbix Agent", "Zabbix Agent 2")
 
 foreach ($svc in $services) {
@@ -146,7 +158,7 @@ if ($msiResult.ExitCode -ne 0) {
     exit 1
 }
 
-# Aguardar pasta ser criada pelo instalador (até 30s)
+# Aguardar pasta ser criada pelo instalador (ate 30s)
 $timeout = 30
 $elapsed = 0
 while (!(Test-Path $AgentFolder) -and $elapsed -lt $timeout) {
@@ -160,7 +172,7 @@ if (!(Test-Path $AgentFolder)) {
 }
 
 # =========================
-# CONFIGURAÇÃO BASE
+# CONFIGURACAO BASE
 # =========================
 if (Test-Path $ConfigPath) {
     Copy-Item $ConfigPath "$ConfigPath.bak" -Force
@@ -187,7 +199,7 @@ UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy B
 
 $config | Out-File -Encoding ascii $ConfigPath
 
-Write-Host "Configuração base aplicada."
+Write-Host "Configuracao base aplicada."
 
 # =========================
 # RDS / TERMINAL SERVER
@@ -201,7 +213,7 @@ if ($IsTS -match "^[Yy]$") {
 }
 
 # =========================
-# SERVIÇO
+# SERVICO
 # =========================
 $serviceName = "Zabbix Agent 2"
 $exePath = "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe"
