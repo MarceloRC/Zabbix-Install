@@ -74,7 +74,7 @@ Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
 # =========================
 Write-Host "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
 
-# Desinstalar versao anterior via MSI (evita falha no upgrade)
+# PASSO 1: Desinstalar via MSI (enquanto arquivos ainda existem)
 $zabbixInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -like "*Zabbix Agent*" }
 
@@ -84,8 +84,18 @@ if ($zabbixInstalled) {
         Write-Host "Desinstalando versao anterior: $($app.DisplayName) $($app.DisplayVersion)"
         Start-Process "msiexec.exe" -Wait -ArgumentList "/x `"$productCode`" /qn /norestart" -ErrorAction SilentlyContinue
     }
+    Start-Sleep 3
 }
 
+# PASSO 2: Limpar flag de reboot pendente (evita bloqueio do MSI)
+$pendingKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"
+$pending = Get-ItemProperty $pendingKey -Name "PendingFileRenameOperations" -ErrorAction SilentlyContinue
+if ($pending) {
+    Remove-ItemProperty $pendingKey -Name "PendingFileRenameOperations" -Force -ErrorAction SilentlyContinue
+    Write-Host "Flag de reboot pendente removido."
+}
+
+# PASSO 3: Parar e remover servicos restantes
 $services = @("Zabbix Agent", "Zabbix Agent 2")
 
 foreach ($svc in $services) {
@@ -96,6 +106,7 @@ foreach ($svc in $services) {
     }
 }
 
+# PASSO 4: Remover chaves de registro restantes
 $serviceRegPaths = @(
     "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent",
     "HKLM:\SYSTEM\CurrentControlSet\Services\Zabbix Agent 2",
@@ -126,6 +137,7 @@ foreach ($path in $eventPaths) {
     }
 }
 
+# PASSO 5: Remover pastas restantes
 $paths = @(
     "C:\Program Files\Zabbix Agent",
     "C:\Program Files\Zabbix Agent 2",
