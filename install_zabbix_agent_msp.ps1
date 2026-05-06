@@ -5,17 +5,36 @@ param(
     [string]$ZabbixServer = ""
 )
 
-$ScriptsPath = "C:\Scripts"
-$AgentFolder = "C:\Program Files\Zabbix Agent 2"
-$ConfigPath = "$AgentFolder\zabbix_agent2.conf"
+$ScriptsPath    = "C:\Scripts"
+$AgentFolder    = "C:\Program Files\Zabbix Agent 2"
+$ConfigPath     = "$AgentFolder\zabbix_agent2.conf"
+$DeployLog      = "C:\Scripts\zabbix_deploy.log"
 
 $GitUpdateScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/windows_update_check.ps1"
-$GitADScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
+$GitADScript     = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
 
-$AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.26/zabbix_agent2-7.0.26-windows-amd64-openssl.msi"
-$AgentInstaller = "C:\Scripts\zabbix_agent2.msi"
+$AgentURL        = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2-7.0.23-windows-amd64-openssl.msi"
+$AgentInstaller  = "C:\Scripts\zabbix_agent2.msi"
 
-Write-Host "===== ZABBIX MSP INSTALL ====="
+# =========================
+# FUNCAO DE LOG
+# =========================
+function Write-Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$timestamp] $Message"
+    Write-Host $line
+    Add-Content -Path $DeployLog -Value $line -Encoding UTF8
+}
+
+# =========================
+# VERIFICAR ADMINISTRADOR
+# =========================
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "ERRO: Execute este script como Administrador." -ForegroundColor Red
+    exit 1
+}
 
 # =========================
 # CRIAR PASTA SCRIPTS
@@ -24,19 +43,22 @@ if (!(Test-Path $ScriptsPath)) {
     New-Item -ItemType Directory -Path $ScriptsPath | Out-Null
 }
 
+Write-Log "===== ZABBIX MSP INSTALL INICIADO ====="
+Write-Log "Computador: $env:COMPUTERNAME"
+Write-Log "Usuario: $env:USERNAME"
+
 # =========================
 # DETECTAR GATEWAY / ZABBIX SERVER
 # =========================
 if ($ZabbixServer -ne "") {
     $Gateway = $ZabbixServer
-    Write-Host "Zabbix Server definido via parametro: $Gateway"
+    Write-Log "Zabbix Server definido via parametro: $Gateway"
 } else {
     $DetectedGateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
-    Sort-Object RouteMetric |
-    Select-Object -First 1).NextHop
+        Sort-Object RouteMetric |
+        Select-Object -First 1).NextHop
 
-    Write-Host ""
-    Write-Host "Gateway detectado: $DetectedGateway"
+    Write-Log "Gateway detectado: $DetectedGateway"
 
     $UseDetected = Read-Host "Usar este gateway como Zabbix Server? (Y/N)"
 
@@ -47,13 +69,13 @@ if ($ZabbixServer -ne "") {
     }
 }
 
-Write-Host "Zabbix Server configurado como: $Gateway"
+Write-Log "Zabbix Server configurado como: $Gateway"
 
 # =========================
 # HOSTNAME
 # =========================
 $hostname = $env:COMPUTERNAME
-$domain = (Get-CimInstance Win32_ComputerSystem).Domain
+$domain   = (Get-CimInstance Win32_ComputerSystem).Domain
 
 if ($domain -and $domain -ne $hostname) {
     $fqdn = "$hostname.$domain"
@@ -61,48 +83,83 @@ if ($domain -and $domain -ne $hostname) {
     $fqdn = $hostname
 }
 
-Write-Host "Hostname: $fqdn"
+Write-Log "Hostname: $fqdn"
+
+# =========================
+# DETECTAR ROLES AUTOMATICAMENTE
+# =========================
+Write-Log "Detectando roles do servidor..."
+
+$IsDC = $false
+$IsTS = $false
+
+try {
+    $adFeature  = Get-WindowsFeature AD-Domain-Services -ErrorAction Stop
+    $rdsFeature = Get-WindowsFeature RDS-RD-Server -ErrorAction Stop
+
+    if ($adFeature.InstallState -eq "Installed") {
+        $IsDC = $true
+        Write-Log "Role detectada: Domain Controller (AD-Domain-Services)"
+    }
+
+    if ($rdsFeature.InstallState -eq "Installed") {
+        $IsTS = $true
+        Write-Log "Role detectada: Terminal Server / RDS (RDS-RD-Server)"
+    }
+} catch {
+    Write-Log "AVISO: Nao foi possivel detectar roles via Get-WindowsFeature. ($($_.Exception.Message))"
+}
+
+if (-not $IsDC -and -not $IsTS) {
+    Write-Log "Servidor identificado como: Membro comum (sem DC ou RDS)"
+}
 
 # =========================
 # BAIXAR AGENT
 # =========================
-Write-Host "Baixando Zabbix Agent..."
-Invoke-WebRequest $AgentURL -OutFile $AgentInstaller
+Write-Log "Baixando Zabbix Agent..."
+try {
+    Invoke-WebRequest $AgentURL -OutFile $AgentInstaller -ErrorAction Stop
+    Write-Log "Download concluido: $AgentInstaller"
+} catch {
+    Write-Log "ERRO no download do Agent: $($_.Exception.Message)"
+    exit 1
+}
 
 # =========================
 # LIMPEZA COMPLETA
 # =========================
-Write-Host "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
+Write-Log "========== INICIANDO LIMPEZA COMPLETA ZABBIX =========="
 
-# PASSO 1: Desinstalar via MSI (enquanto arquivos ainda existem)
+# PASSO 1: Desinstalar via MSI
 $zabbixInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -like "*Zabbix Agent*" }
 
 if ($zabbixInstalled) {
     foreach ($app in $zabbixInstalled) {
         $productCode = $app.PSChildName
-        Write-Host "Desinstalando versao anterior: $($app.DisplayName) $($app.DisplayVersion)"
+        Write-Log "Desinstalando versao anterior: $($app.DisplayName) $($app.DisplayVersion)"
         Start-Process "msiexec.exe" -Wait -ArgumentList "/x `"$productCode`" /qn /norestart" -ErrorAction SilentlyContinue
     }
     Start-Sleep 3
 }
 
-# PASSO 2: Limpar flag de reboot pendente (evita bloqueio do MSI)
+# PASSO 2: Limpar flag de reboot pendente
 $pendingKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"
 $pending = Get-ItemProperty $pendingKey -Name "PendingFileRenameOperations" -ErrorAction SilentlyContinue
 if ($pending) {
     Remove-ItemProperty $pendingKey -Name "PendingFileRenameOperations" -Force -ErrorAction SilentlyContinue
-    Write-Host "Flag de reboot pendente removido."
+    Write-Log "Flag de reboot pendente removido."
 }
 
 # PASSO 3: Parar e remover servicos restantes
 $services = @("Zabbix Agent", "Zabbix Agent 2")
-
 foreach ($svc in $services) {
     $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($service) {
         Stop-Service $svc -Force -ErrorAction SilentlyContinue
         sc.exe delete "$svc" | Out-Null
+        Write-Log "Servico removido: $svc"
     }
 }
 
@@ -115,7 +172,6 @@ $serviceRegPaths = @(
     "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent",
     "HKLM:\SYSTEM\ControlSet002\Services\Zabbix Agent 2"
 )
-
 foreach ($path in $serviceRegPaths) {
     if (Test-Path $path) {
         Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
@@ -130,7 +186,6 @@ $eventPaths = @(
     "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent",
     "HKLM:\SYSTEM\ControlSet002\Services\EventLog\Application\Zabbix Agent 2"
 )
-
 foreach ($path in $eventPaths) {
     if (Test-Path $path) {
         Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
@@ -138,25 +193,25 @@ foreach ($path in $eventPaths) {
 }
 
 # PASSO 5: Remover pastas restantes
-$paths = @(
+$oldPaths = @(
     "C:\Program Files\Zabbix Agent",
     "C:\Program Files\Zabbix Agent 2",
     "C:\Program Files (x86)\Zabbix Agent",
     "C:\Program Files (x86)\Zabbix Agent 2"
 )
-
-foreach ($p in $paths) {
+foreach ($p in $oldPaths) {
     if (Test-Path $p) {
         Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Log "Pasta removida: $p"
     }
 }
 
-Write-Host "========== LIMPEZA FINALIZADA =========="
+Write-Log "========== LIMPEZA FINALIZADA =========="
 
 # =========================
 # INSTALACAO
 # =========================
-Write-Host "Instalando Agent..."
+Write-Log "Instalando Agent..."
 
 Unblock-File $AgentInstaller
 
@@ -171,10 +226,10 @@ $msiResult = Start-Process "msiexec.exe" -Wait -PassThru -ArgumentList @(
     "HOSTNAME=$fqdn"
 )
 
-Write-Host "msiexec ExitCode: $($msiResult.ExitCode)"
+Write-Log "msiexec ExitCode: $($msiResult.ExitCode)"
 
 if ($msiResult.ExitCode -ne 0) {
-    Write-Host "ERRO na instalacao. Veja o log em: $msiLog"
+    Write-Log "ERRO na instalacao. Veja o log em: $msiLog"
     exit 1
 }
 
@@ -187,8 +242,26 @@ while (!(Test-Path $AgentFolder) -and $elapsed -lt $timeout) {
 }
 
 if (!(Test-Path $AgentFolder)) {
-    Write-Host "ERRO: Pasta do Agent nao foi criada. Verifique o instalador."
+    Write-Log "ERRO: Pasta do Agent nao foi criada. Verifique o instalador."
     exit 1
+}
+
+# =========================
+# FIREWALL - PORTA 10050
+# =========================
+Write-Log "Configurando regra de Firewall (porta 10050)..."
+$fwRule = Get-NetFirewallRule -DisplayName "Zabbix Agent" -ErrorAction SilentlyContinue
+if (-not $fwRule) {
+    New-NetFirewallRule `
+        -DisplayName "Zabbix Agent" `
+        -Direction Inbound `
+        -Protocol TCP `
+        -LocalPort 10050 `
+        -Action Allow `
+        -Profile Any | Out-Null
+    Write-Log "Regra de firewall criada: porta 10050 liberada."
+} else {
+    Write-Log "Regra de firewall ja existia, sem alteracoes."
 }
 
 # =========================
@@ -196,10 +269,12 @@ if (!(Test-Path $AgentFolder)) {
 # =========================
 if (Test-Path $ConfigPath) {
     Copy-Item $ConfigPath "$ConfigPath.bak" -Force
+    Write-Log "Backup do config anterior salvo em: $ConfigPath.bak"
 }
 
+Write-Log "Baixando scripts auxiliares do GitHub..."
 Invoke-WebRequest $GitUpdateScript -OutFile "$ScriptsPath\windows_update_check.ps1"
-Invoke-WebRequest $GitADScript -OutFile "$ScriptsPath\ad_replication.ps1"
+Invoke-WebRequest $GitADScript     -OutFile "$ScriptsPath\ad_replication.ps1"
 
 $config = @"
 LogFile=C:\Program Files\Zabbix Agent 2\zabbix_agent2.log
@@ -217,31 +292,25 @@ UserParameter=windows.update.days,powershell -NoProfile -ExecutionPolicy Bypass 
 "@
 
 $config | Out-File -Encoding ascii $ConfigPath
-
-Write-Host "Configuracao base aplicada."
+Write-Log "Configuracao base aplicada."
 
 # =========================
-# RDS / TERMINAL SERVER
+# RDS / TERMINAL SERVER (automatico)
 # =========================
-$IsTS = Read-Host "Este servidor e Terminal Server / RDS? (Y/N)"
-
-if ($IsTS -match "^[Yy]$") {
+if ($IsTS) {
     $rdsParam = "UserParameter=rds.grace.days,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Invoke-CimMethod -InputObject (Get-CimInstance -Namespace root/CIMV2/TerminalServices -ClassName Win32_TerminalServiceSetting) -MethodName GetGracePeriodDays).DaysLeft`""
     Add-Content -Path $ConfigPath -Value $rdsParam -Encoding ASCII
-    Write-Host "Configuracao RDS adicionada."
+    Write-Log "Configuracao RDS adicionada ao config."
 }
 
 # =========================
-# DOMAIN CONTROLLER (DC)
+# DOMAIN CONTROLLER (automatico)
 # =========================
-$IsDC = Read-Host "Este servidor e um Domain Controller (DC)? (Y/N)"
-
-if ($IsDC -match "^[Yy]$") {
+if ($IsDC) {
     $adParam = "UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"Get-Content C:\Scripts\ad_result.txt`""
     Add-Content -Path $ConfigPath -Value $adParam -Encoding ASCII
-    Write-Host "Configuracao AD Replication adicionada."
+    Write-Log "Configuracao AD Replication adicionada ao config."
 
-    # Task agendada para o script de replicacao AD
     $ADAction = New-ScheduledTaskAction `
         -Execute "powershell.exe" `
         -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\ad_replication.ps1"
@@ -258,12 +327,11 @@ if ($IsDC -match "^[Yy]$") {
         -Action $ADAction `
         -Trigger $ADTrigger `
         -Principal $ADPrincipal `
-        -Force
+        -Force | Out-Null
 
-    Write-Host "Task AD Replication criada com sucesso."
+    Write-Log "Task 'Zabbix-AD-Replication-Check' criada (a cada 30 minutos)."
 
-    # Executar o script de AD imediatamente para gerar o arquivo inicial
-    Write-Host "Executando verificacao inicial de replicacao AD..."
+    Write-Log "Executando verificacao inicial de replicacao AD..."
     powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_replication.ps1"
 }
 
@@ -271,60 +339,79 @@ if ($IsDC -match "^[Yy]$") {
 # SERVICO
 # =========================
 $serviceName = "Zabbix Agent 2"
-$exePath = "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe"
+$exePath     = "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe"
 
 $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 
 if ($svc) {
-    Write-Host "Servico ja existe, reiniciando..."
+    Write-Log "Servico ja existe, reiniciando..."
     Restart-Service $serviceName -Force
 } else {
-    Write-Host "Servico nao encontrado, criando manualmente..."
-
+    Write-Log "Servico nao encontrado, criando manualmente..."
     if (Test-Path $exePath) {
         & "$exePath" --config "$ConfigPath" --install
         Start-Sleep 2
         Start-Service $serviceName
-        Write-Host "Servico criado e iniciado."
+        Write-Log "Servico criado e iniciado."
     } else {
-        Write-Host "Executavel nao encontrado!"
+        Write-Log "ERRO: Executavel nao encontrado em $exePath"
     }
 }
-
-Write-Host ""
-Write-Host "ZABBIX AGENT INSTALADO E CONFIGURADO"
 
 # =========================
 # EXECUTAR CHECK DE UPDATES
 # =========================
-powershell C:\Scripts\windows_update_check.ps1
+Write-Log "Executando verificacao inicial de Windows Update..."
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\windows_update_check.ps1"
 
 # =========================
-# TASK AGENDADA - WINDOWS UPDATE
+# TASK AGENDADA - WINDOWS UPDATE (automatica)
 # =========================
-$CreateTask = Read-Host "Deseja criar a tarefa de Windows Update? (Y/N)"
+Write-Log "Criando task 'Zabbix-Windows-Update-Check'..."
 
-if ($CreateTask -match "^[Yy]$") {
+$Action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\windows_update_check.ps1"
 
-    $Action = New-ScheduledTaskAction `
-        -Execute "powershell.exe" `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\windows_update_check.ps1"
+$Trigger1 = New-ScheduledTaskTrigger -Daily -At 13:00
+$Trigger2 = New-ScheduledTaskTrigger -Daily -At 03:00
+$Trigger3 = New-ScheduledTaskTrigger -AtLogOn
 
-    $Trigger1 = New-ScheduledTaskTrigger -Daily -At 13:00
-    $Trigger2 = New-ScheduledTaskTrigger -Daily -At 03:00
-    $Trigger3 = New-ScheduledTaskTrigger -AtLogOn
+$Principal = New-ScheduledTaskPrincipal `
+    -UserId "SYSTEM" `
+    -LogonType ServiceAccount `
+    -RunLevel Highest
 
-    $Principal = New-ScheduledTaskPrincipal `
-        -UserId "SYSTEM" `
-        -LogonType ServiceAccount `
-        -RunLevel Highest
+Register-ScheduledTask `
+    -TaskName "Zabbix-Windows-Update-Check" `
+    -Action $Action `
+    -Trigger @($Trigger1, $Trigger2, $Trigger3) `
+    -Principal $Principal `
+    -Force | Out-Null
 
-    Register-ScheduledTask `
-        -TaskName "Zabbix-Windows-Update-Check" `
-        -Action $Action `
-        -Trigger @($Trigger1, $Trigger2, $Trigger3) `
-        -Principal $Principal `
-        -Force
+Write-Log "Task 'Zabbix-Windows-Update-Check' criada com sucesso."
 
-    Write-Host "Task criada com sucesso."
+# =========================
+# VERIFICACAO POS-INSTALL
+# =========================
+Write-Log "========== VERIFICACAO POS-INSTALL =========="
+
+$svcFinal = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($svcFinal -and $svcFinal.Status -eq "Running") {
+    Write-Log "OK - Servico '$serviceName' esta RODANDO."
+} else {
+    Write-Log "ATENCAO - Servico '$serviceName' NAO esta rodando. Status: $($svcFinal.Status)"
 }
+
+Write-Log "Testando conectividade com Zabbix Server ($Gateway):10051..."
+$connTest = Test-NetConnection -ComputerName $Gateway -Port 10051 -WarningAction SilentlyContinue
+if ($connTest.TcpTestSucceeded) {
+    Write-Log "OK - Porta 10051 acessivel no Zabbix Server."
+} else {
+    Write-Log "ATENCAO - Porta 10051 NAO acessivel em $Gateway. Verifique firewall/roteamento."
+}
+
+Write-Log "========== DEPLOY FINALIZADO =========="
+Write-Log "Log completo salvo em: $DeployLog"
+Write-Host ""
+Write-Host "ZABBIX AGENT INSTALADO E CONFIGURADO" -ForegroundColor Green
