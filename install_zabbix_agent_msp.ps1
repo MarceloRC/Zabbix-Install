@@ -12,7 +12,7 @@ $ConfigPath = "$AgentFolder\zabbix_agent2.conf"
 $GitUpdateScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/windows_update_check.ps1"
 $GitADScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
 
-$AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2-7.0.23-windows-amd64-openssl.msi"
+$AgentURL = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.26/zabbix_agent2-7.0.26-windows-amd64-openssl.msi"
 $AgentInstaller = "C:\Scripts\zabbix_agent2.msi"
 
 Write-Host "===== ZABBIX MSP INSTALL ====="
