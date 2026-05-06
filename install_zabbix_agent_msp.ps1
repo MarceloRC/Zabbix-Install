@@ -214,7 +214,6 @@ UserParameter=windows.update.security,powershell -NoProfile -ExecutionPolicy Byp
 UserParameter=windows.update.reboot,powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-Content C:\Scripts\windows_update_status.txt | Select-String 'RebootRequired').ToString().Split('=')[1]"
 UserParameter=windows.update.service,powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-Content C:\Scripts\windows_update_status.txt | Select-String 'WUServiceRunning').ToString().Split('=')[1]"
 UserParameter=windows.update.days,powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-Content C:\Scripts\windows_update_status.txt | Select-String 'DaysSinceLastUpdate').ToString().Split('=')[1]"
-UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_replication.ps1"
 "@
 
 $config | Out-File -Encoding ascii $ConfigPath
@@ -230,6 +229,42 @@ if ($IsTS -match "^[Yy]$") {
     $rdsParam = "UserParameter=rds.grace.days,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Invoke-CimMethod -InputObject (Get-CimInstance -Namespace root/CIMV2/TerminalServices -ClassName Win32_TerminalServiceSetting) -MethodName GetGracePeriodDays).DaysLeft`""
     Add-Content -Path $ConfigPath -Value $rdsParam -Encoding ASCII
     Write-Host "Configuracao RDS adicionada."
+}
+
+# =========================
+# DOMAIN CONTROLLER (DC)
+# =========================
+$IsDC = Read-Host "Este servidor e um Domain Controller (DC)? (Y/N)"
+
+if ($IsDC -match "^[Yy]$") {
+    $adParam = "UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"Get-Content C:\Scripts\ad_result.txt`""
+    Add-Content -Path $ConfigPath -Value $adParam -Encoding ASCII
+    Write-Host "Configuracao AD Replication adicionada."
+
+    # Task agendada para o script de replicacao AD
+    $ADAction = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\ad_replication.ps1"
+
+    $ADTrigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 30) -Once -At (Get-Date)
+
+    $ADPrincipal = New-ScheduledTaskPrincipal `
+        -UserId "SYSTEM" `
+        -LogonType ServiceAccount `
+        -RunLevel Highest
+
+    Register-ScheduledTask `
+        -TaskName "Zabbix-AD-Replication-Check" `
+        -Action $ADAction `
+        -Trigger $ADTrigger `
+        -Principal $ADPrincipal `
+        -Force
+
+    Write-Host "Task AD Replication criada com sucesso."
+
+    # Executar o script de AD imediatamente para gerar o arquivo inicial
+    Write-Host "Executando verificacao inicial de replicacao AD..."
+    powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_replication.ps1"
 }
 
 # =========================
@@ -265,7 +300,7 @@ Write-Host "ZABBIX AGENT INSTALADO E CONFIGURADO"
 powershell C:\Scripts\windows_update_check.ps1
 
 # =========================
-# TASK AGENDADA
+# TASK AGENDADA - WINDOWS UPDATE
 # =========================
 $CreateTask = Read-Host "Deseja criar a tarefa de Windows Update? (Y/N)"
 
