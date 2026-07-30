@@ -12,6 +12,7 @@ $GitUpdateScript      = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Inst
 $GitADScript          = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
 $GitRDSScript         = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/rds_grace.ps1"
 $GitADSecurityScript  = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_security_check.ps1"
+$GitADUserInvScript   = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_user_inventory.ps1"
 $AgentURL        = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2-7.0.23-windows-amd64-openssl.msi"
 $AgentInstaller  = "C:\Scripts\zabbix_agent2.msi"
 # =========================
@@ -237,6 +238,7 @@ Invoke-WebRequest $GitUpdateScript     -OutFile "$ScriptsPath\windows_update_che
 Invoke-WebRequest $GitADScript         -OutFile "$ScriptsPath\ad_replication.ps1"
 Invoke-WebRequest $GitRDSScript        -OutFile "$ScriptsPath\rds_grace.ps1"
 Invoke-WebRequest $GitADSecurityScript -OutFile "$ScriptsPath\ad_security_check.ps1"
+Invoke-WebRequest $GitADUserInvScript  -OutFile "$ScriptsPath\ad_user_inventory.ps1"
 $config = @"
 LogFile=C:\Program Files\Zabbix Agent 2\zabbix_agent2.log
 Server=$Gateway
@@ -351,6 +353,44 @@ if ($IsDC) {
         -Principal $ADSecPrincipal `
         -Force | Out-Null
     Write-Log "Task 'Zabbix-AD-Security-Check' criada com sucesso."
+
+    # ---- AD User Inventory (novo) ----
+    $adUserInvParams = @(
+        "UserParameter=ad.user.total,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^TotalUsers=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.active,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ActiveUsers=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.disabled,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^DisabledUsers=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.serviceaccounts,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ServiceAccounts=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.serviceaccounts.pwdneverexpires,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ServiceAccountsPwdNeverExpires=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.disabledover90d,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^DisabledOver90Days=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.computers.total,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ComputersTotal=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.computers.stale90d,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ComputersStale90d=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.errorflag,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_user_inventory_status.txt | Select-String '^ErrorFlag=').ToString().Split('=')[1]`"",
+        "UserParameter=ad.user.dept.data,type C:\Scripts\ad_user_departments.json"
+    )
+    foreach ($line in $adUserInvParams) {
+        Add-Content -Path $ConfigPath -Value $line -Encoding ASCII
+    }
+    Write-Log "Configuracao AD User Inventory adicionada ao config."
+
+    Write-Log "Executando verificacao inicial de AD User Inventory..."
+    powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_user_inventory.ps1"
+
+    Write-Log "Criando task 'Zabbix-AD-User-Inventory-Check' (diaria as 06:00)..."
+    $ADUserInvAction = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\ad_user_inventory.ps1"
+    $ADUserInvTrigger = New-ScheduledTaskTrigger -Daily -At 06:00
+    $ADUserInvPrincipal = New-ScheduledTaskPrincipal `
+        -UserId "SYSTEM" `
+        -LogonType ServiceAccount `
+        -RunLevel Highest
+    Register-ScheduledTask `
+        -TaskName "Zabbix-AD-User-Inventory-Check" `
+        -Action $ADUserInvAction `
+        -Trigger $ADUserInvTrigger `
+        -Principal $ADUserInvPrincipal `
+        -Force | Out-Null
+    Write-Log "Task 'Zabbix-AD-User-Inventory-Check' criada com sucesso."
 }
 # =========================
 # SERVICO
