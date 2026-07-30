@@ -8,9 +8,10 @@ $ScriptsPath    = "C:\Scripts"
 $AgentFolder    = "C:\Program Files\Zabbix Agent 2"
 $ConfigPath     = "$AgentFolder\zabbix_agent2.conf"
 $DeployLog      = "C:\Scripts\zabbix_deploy.log"
-$GitUpdateScript = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/windows_update_check.ps1"
-$GitADScript     = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
-$GitRDSScript    = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/rds_grace.ps1"
+$GitUpdateScript      = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/windows_update_check.ps1"
+$GitADScript          = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_replication.ps1"
+$GitRDSScript         = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/rds_grace.ps1"
+$GitADSecurityScript  = "https://raw.githubusercontent.com/MarceloRC/Zabbix-Install/main/ad_security_check.ps1"
 $AgentURL        = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.23/zabbix_agent2-7.0.23-windows-amd64-openssl.msi"
 $AgentInstaller  = "C:\Scripts\zabbix_agent2.msi"
 # =========================
@@ -232,9 +233,10 @@ if (Test-Path $ConfigPath) {
     Write-Log "Backup do config anterior salvo em: $ConfigPath.bak"
 }
 Write-Log "Baixando scripts auxiliares do GitHub..."
-Invoke-WebRequest $GitUpdateScript -OutFile "$ScriptsPath\windows_update_check.ps1"
-Invoke-WebRequest $GitADScript     -OutFile "$ScriptsPath\ad_replication.ps1"
-Invoke-WebRequest $GitRDSScript    -OutFile "$ScriptsPath\rds_grace.ps1"
+Invoke-WebRequest $GitUpdateScript     -OutFile "$ScriptsPath\windows_update_check.ps1"
+Invoke-WebRequest $GitADScript         -OutFile "$ScriptsPath\ad_replication.ps1"
+Invoke-WebRequest $GitRDSScript        -OutFile "$ScriptsPath\rds_grace.ps1"
+Invoke-WebRequest $GitADSecurityScript -OutFile "$ScriptsPath\ad_security_check.ps1"
 $config = @"
 LogFile=C:\Program Files\Zabbix Agent 2\zabbix_agent2.log
 Server=$Gateway
@@ -283,6 +285,7 @@ if ($IsTS) {
 # DOMAIN CONTROLLER (automatico)
 # =========================
 if ($IsDC) {
+    # ---- AD Replication (ja existente) ----
     $adParam = "UserParameter=ad.replication.status,powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"Get-Content C:\Scripts\ad_result.txt`""
     Add-Content -Path $ConfigPath -Value $adParam -Encoding ASCII
     Write-Log "Configuracao AD Replication adicionada ao config."
@@ -303,6 +306,51 @@ if ($IsDC) {
     Write-Log "Task 'Zabbix-AD-Replication-Check' criada (a cada 30 minutos)."
     Write-Log "Executando verificacao inicial de replicacao AD..."
     powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_replication.ps1"
+
+    # ---- AD Security Check (novo) ----
+    $adSecParams = @(
+        "UserParameter=ad.security.stale,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'StaleAccounts').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.pwneverexpires,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'PasswordNeverExpires').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.kerberoastable,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'KerberoastableAccounts').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.domainadmins,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'DomainAdminsCount').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.enterpriseadmins,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'EnterpriseAdminsCount').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.protectedusers,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'ProtectedUsersCount').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.unconstraineddeleg,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'UnconstrainedDelegation').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.trusts,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'TrustsCount').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.obsoleteos,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'ObsoleteOS').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.laps,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'LAPSImplemented').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.guestenabled,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'GuestEnabled').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.smb1enabled,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'SMB1Enabled').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.reversibleenc,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'ReversibleEncryptionAccounts').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.prewin2000,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'PreWin2000CompatMembers').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.recyclebin,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'RecycleBinEnabled').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.pwnotrequired,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'PasswordNotRequiredAccounts').ToString().Split('=')[1]`"",
+        "UserParameter=ad.security.errorflag,powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-Content C:\Scripts\ad_security_status.txt | Select-String 'ErrorFlag').ToString().Split('=')[1]`""
+    )
+    foreach ($line in $adSecParams) {
+        Add-Content -Path $ConfigPath -Value $line -Encoding ASCII
+    }
+    Write-Log "Configuracao AD Security Check adicionada ao config."
+
+    Write-Log "Executando verificacao inicial de AD Security Check..."
+    powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\ad_security_check.ps1"
+
+    Write-Log "Criando task 'Zabbix-AD-Security-Check' (diaria as 06:00)..."
+    $ADSecAction = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\Scripts\ad_security_check.ps1"
+    $ADSecTrigger = New-ScheduledTaskTrigger -Daily -At 06:00
+    $ADSecPrincipal = New-ScheduledTaskPrincipal `
+        -UserId "SYSTEM" `
+        -LogonType ServiceAccount `
+        -RunLevel Highest
+    Register-ScheduledTask `
+        -TaskName "Zabbix-AD-Security-Check" `
+        -Action $ADSecAction `
+        -Trigger $ADSecTrigger `
+        -Principal $ADSecPrincipal `
+        -Force | Out-Null
+    Write-Log "Task 'Zabbix-AD-Security-Check' criada com sucesso."
 }
 # =========================
 # SERVICO
