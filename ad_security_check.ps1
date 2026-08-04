@@ -137,11 +137,16 @@ try {
     $results.ErrorFlag = 1
 }
 # ---- 10. LAPS implementado (schema tem o atributo) ----------
+#          Cobre LAPS legado (ms-Mcs-AdmPwd) e Windows LAPS nativo.
+#          IMPORTANTE: no Windows LAPS nativo, o "Name"/cn do atributo no schema
+#          e "ms-LAPS-Password" (com hifen), mas o lDAPDisplayName e "msLAPS-Password"
+#          (sem hifen antes de LAPS). Por isso filtramos por lDAPDisplayName, que e
+#          o identificador estavel, em vez de Name.
 try {
     $rootDSE = Get-ADRootDSE -ErrorAction Stop
-    $lapsAttr = Get-ADObject -SearchBase $rootDSE.schemaNamingContext `
-        -Filter { Name -eq "ms-Mcs-AdmPwd" } -ErrorAction Stop
-    if ($lapsAttr) {
+    $lapsAttrs = Get-ADObject -SearchBase $rootDSE.schemaNamingContext `
+        -LDAPFilter "(|(lDAPDisplayName=ms-Mcs-AdmPwd)(lDAPDisplayName=msLAPS-Password))" -ErrorAction Stop
+    if ($lapsAttrs) {
         $results.LAPSImplemented = 1
     } else {
         $results.LAPSImplemented = 0
