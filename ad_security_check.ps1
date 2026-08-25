@@ -101,10 +101,20 @@ try {
     $results.ErrorFlag = 1
 }
 # ---- 7. Unconstrained Delegation (usuarios e computadores) --
+#          Domain Controllers SEMPRE tem TrustedForDelegation=True por
+#          design do Kerberos (isso e obrigatorio para o funcionamento
+#          do AD, nao e uma falha de configuracao). Por isso excluimos
+#          qualquer objeto computador cujo PrimaryGroupID seja 516
+#          (RID fixo do grupo "Domain Controllers"), em vez de comparar
+#          apenas com o hostname local — assim o filtro cobre todos os
+#          DCs da floresta, nao so o servidor onde o script roda.
 try {
     $delegUsers = Get-ADUser -Filter { TrustedForDelegation -eq $true } -ErrorAction Stop
-    $delegComputers = Get-ADComputer -Filter { TrustedForDelegation -eq $true } -ErrorAction Stop |
-        Where-Object { $_.Name -ne $env:COMPUTERNAME } # ignora o proprio DC, que sempre tem essa flag
+
+    $delegComputers = Get-ADComputer -Filter { TrustedForDelegation -eq $true } `
+        -Properties PrimaryGroupID -ErrorAction Stop |
+        Where-Object { $_.PrimaryGroupID -ne 516 } # exclui qualquer Domain Controller da floresta
+
     $results.UnconstrainedDelegation = ($delegUsers | Measure-Object).Count + ($delegComputers | Measure-Object).Count
 } catch {
     $results.ErrorFlag = 1
